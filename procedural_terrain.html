@@ -72,7 +72,7 @@
 				fragNormal = normalMatrix * normal;
 				
 				vec4 tmp = modelViewMatrix * vec4( position, 1.0 );
-				fragVertPos = tmp.xyz; // have it pointing to camera
+				fragVertPos = tmp.xyz;
 			}			
 		</script>
 		<script id="fragmentShader" type="x-shader/x-fragment">
@@ -107,7 +107,10 @@
 			var windowHalfY = wHeight / 2;
 
 			var clock;
-		
+
+			var sunPosition;
+			var terrainMaterial;
+
 			init();
 			animate();
 
@@ -148,20 +151,21 @@
 				// compute normals, apparently we need to do this is two function calls
 				plane.computeFaceNormals();
 				plane.computeVertexNormals();
+				sunPosition = new THREE.Vector3(50,50,100);
 				var uniforms = {
-					LightPos:    { type: "v3", value: new THREE.Vector3(0,100,0) },
+					LightPos:    { type: "v3", value: sunPosition },
 					AmbientSun:  { type: "v3", value: new THREE.Vector3(1,1,1) },
 					DiffuseDirt: { type: "v3", value: new THREE.Vector3(0.3,0.3,0.1) },
 					DiffuseGrass:{ type: "v3", value: new THREE.Vector3(0,0,0) },
 					DiffusePeak: { type: "v3", value: new THREE.Vector3(0,0,0) },
 				};
-				var material = new THREE.ShaderMaterial( {
+				terrainMaterial = new THREE.ShaderMaterial( {
 					uniforms: uniforms,
 					vertexShader: document.getElementById( 'vertexShader' ).textContent,
 					fragmentShader: document.getElementById( 'fragmentShader' ).textContent
 				} );
 
-				var terrain = new THREE.Mesh( plane, material );
+				var terrain = new THREE.Mesh( plane, terrainMaterial );
 				scene.add(terrain);
 
 				// RENDERER
@@ -184,7 +188,13 @@
 			}
 
 			function update() {
+				var worldCenter = new THREE.Vector3(50,50,-500);
+				var diff = new THREE.Vector3().sub(sunPosition, worldCenter);
+				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), clock.getElapsedTime()*0.6 );
+				mat.multiplyVector3(diff);
+				var newPos = new THREE.Vector3().add(worldCenter, diff);
 
+				terrainMaterial["uniforms"]["LightPos"]["value"] = newPos;
 			}
 
 			function render() {
