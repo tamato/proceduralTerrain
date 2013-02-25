@@ -114,29 +114,36 @@
 			    return f;
 			}
 
+			float marblenoise(vec3 p, float s)
+			{
+				//return (sin( p.x * 4. + fbm(p * 4.5) * 3.) + 1.) * .5;	
+				return fbm(p)*s;
+			}
+
 			varying float height;
 			varying float depth;
 
 			void main()	{
 				vec4 p = vec4(position, 1.0);
 
-				float incScale = 150.0;
-				float div = 200.0;
-				p.z = fbm(position/div)*incScale;
+				float incScale = 500.0;
+				float div = 1000.0;
+				p.z = marblenoise(position/div, incScale);
+				
 				height = p.z;
 
 				gl_Position = projectionMatrix * modelViewMatrix * p;
 				depth = gl_Position.z/gl_Position.w;
 
 				// compute normal using centeral differences method
-				vec3 n0 = position + vec3(100,0,0);
-				n0.z = fbm(n0/div)*incScale;
-				vec3 n1 = position - vec3(100,0,0);
-				n1.z = fbm(n1/div)*incScale;
-				vec3 n2 = position + vec3(0,100,0);
-				n2.z = fbm(n2/div)*incScale;
-				vec3 n3 = position - vec3(0,100,0);
-				n3.z = fbm(n3/div)*incScale;
+				vec3 n0 = position + vec3(2,0,0);
+				n0.z = marblenoise(n0/div, incScale);
+				vec3 n1 = position - vec3(2,0,0);
+				n1.z = marblenoise(n1/div, incScale);
+				vec3 n2 = position + vec3(0,2,0);
+				n2.z = marblenoise(n2/div, incScale);
+				vec3 n3 = position - vec3(0,2,0);
+				n3.z = marblenoise(n3/div, incScale);
 
 				vec3 sumedNormal = vec3(0);
 				vec3 p0 = p.xyz;
@@ -174,6 +181,13 @@
 			uniform float FogDensity;
 			uniform vec3 DiffuseFog;
 
+			float linear_depth(float z)
+			{
+				float n = 0.1;
+				float f = 1000.;
+				return (2. * n) / (f+n-z*(f-n));
+			}
+
 			float pulse(float c, float w, float x)
 			{
 				x = abs(x-c);
@@ -182,7 +196,7 @@
 				return 1.-x*x*(3.-2.*x);
 			}
 
-			vec3 computefog(vec3 color, float d)
+			vec3 compute_fog(vec3 color, float d)
 			{
 				float e = 2.71828;
 				float p = pow(d * FogDensity, 2.);
@@ -204,7 +218,7 @@
 				diffuse = mix(diffuse, DiffusePeak, pp);
 				vec3 color = diffuse * AmbientSun * f;
 
-				color = computefog(color, (gl_FragCoord.z/gl_FragCoord.w)*0.002);
+				color = compute_fog(color, linear_depth(gl_FragCoord.z));
                 gl_FragColor = vec4(color, 1.0);
                 //gl_FragColor = vec4((gl_FragCoord.z/gl_FragCoord.w)*0.002);
                 //gl_FragColor = vec4(depth*0.6);
@@ -218,6 +232,115 @@
                 // color.g += pulse( 70.0,40.0,c);
                 // color.b += pulse(125.0,50.0,c);
                 // gl_FragColor = vec4(color, 1.0);
+			}
+		</script>
+		
+		<!-- shaders for the atmospheric effect -->
+		<script id="atmos_vert" type="x-shader/x-vertex">
+			void main() {
+				gl_Position = vec4( position, 1.0 );
+			}
+		</script>
+		<script id="atmos_frag" type="x-shader/x-fragment">
+			uniform mat4 invrs_cam;
+			uniform mat4 invrs_proj;
+			uniform vec2 resolution;
+			uniform vec3 light_dir;
+			uniform vec3 brightness_scales;
+			uniform float rayleigh_brightness;
+			uniform float mie_brightness;
+			uniform float sun_brightness;
+			uniform float mie_distro;
+			uniform float eye_height;
+			uniform float rayleigh_collecting_power;
+			uniform float mie_collecting_power;
+
+			// taken directly from:
+			// http://codeflow.org/entries/2011/apr/13/advanced-webgl-part-2-sky-rendering/
+			//	function of the same name.
+			vec3 get_world_normal()
+			{
+				vec2 frag = gl_FragCoord.xy/ resolution;
+				frag = frag * 2.0 - 1.0;
+				vec4 device_normal = vec4(frag, 0., 1.);
+				vec4 eye_normal = normalize(invrs_proj * device_normal);
+				vec3 world_normal = normalize( (invrs_cam * eye_normal).xyz );
+				return world_normal;
+			}
+
+			// taken directly from:
+			// http://http.developer.nvidia.com/GPUGems2/gpugems2_chapter16.html
+			//	16.2.2
+			float phase(float theta, float g)
+			{
+				float a = 3.0*(1.-g*g);
+				float b = 2.0*(2.+g*g);
+				float c = 1.+theta*theta;
+				float d = 1. + g*g - 2.*g*theta;
+				return (a/b) * (c/pow(d, 1.5));
+			}
+
+			float atmospheric_depth(vec3 p, vec3 d)
+			{
+				float a = dot(d, d);
+				float b = 2.0 * dot(p, d);
+				float c = dot(p, p) - 1.0;
+				float det = b*b - 4.*a*c;
+				float detSqr = sqrt(det);
+				float q = (-b - detSqr)/2.;
+				return c/q;
+			}
+
+			// the color of magic, err I mean air
+			// values from codeflow.org
+			const vec3 Kr = vec3(0.18867780436772762, 0.4978442963618773, 0.6616065586417131);
+			const int step_count = 15;
+
+			vec3 absorb(float dist, vec3 color, float factor)
+			{
+				return color-color*pow(Kr, vec3(factor/dist));
+			}
+
+			void main()	{
+				vec3 eye_position = vec3(0, eye_height, 0);
+				vec3 eye_dir = get_world_normal();
+				float eye_depth = atmospheric_depth(eye_position, eye_dir);
+				float step_length = eye_depth / float(step_count);
+
+				float theta = dot(eye_dir, light_dir);
+
+				vec3 brightness = vec3(
+					phase(theta, -.01),						// rayleigh
+					phase(theta, mie_distro),					// mie
+					smoothstep(0.,.15, phase(theta, 0.9995)) );	// sun
+
+				//brightness *= brightness_scales;
+
+				vec3 rayleigh_collected = vec3(0.);
+				vec3 mie_collected = vec3(0.);
+
+				float intensity 	= 1.8;
+				float rayleigh_str 	= 0.139;
+				float mie_str 		= 0.264;
+				float scatter_str 	= 0.028;
+
+				float test;
+				for (int i=0; i<step_count; ++i) {
+					float sample_dist = step_length * float(i);
+					vec3 pos = eye_position + eye_dir*sample_dist;
+					float sample_depth = atmospheric_depth(pos, light_dir);
+					
+					vec3 influx = absorb(sample_depth, vec3(intensity), scatter_str);
+					
+					rayleigh_collected += absorb(sample_depth, Kr*influx, rayleigh_str);
+					mie_collected += absorb(sample_depth, influx, mie_str);
+				}
+
+				rayleigh_collected = (rayleigh_collected * pow(eye_depth, rayleigh_collecting_power)) / float(step_count);
+				mie_collected = (mie_collected * pow(eye_depth, mie_collecting_power)) / float(step_count);
+
+				vec3 color = brightness.b * mie_collected + brightness.g * mie_collected + brightness.r * rayleigh_collected;
+				gl_FragColor = vec4( color, 1.0);
 			}
 		</script>
 
@@ -234,6 +357,16 @@
 
 			var sunPosition;
 			var terrainMaterial;
+			var atmosphereTop = 2000;		// top of the atmosphere
+
+			/** Brightness scales for rayleigh, mie and the sun **/
+			var rayleighScale = 3.3;
+			var mieScale = .1;
+			var sunScale = 1.0;
+
+
+			// render to texture values to compute atmospheric scattering
+			var rtt_scene, rtt_camera, rtt_texture, rtt_material, rtt_uniforms;
 
 			init();
 			animate();
@@ -246,14 +379,14 @@
 				clock = new THREE.Clock();
 				scene = new THREE.Scene();
 				camera = new THREE.PerspectiveCamera( 45, wWidth / wHeight, 0.1, 1000 );
-				camera.position = new THREE.Vector3(500, 0, 250);
+				camera.position = new THREE.Vector3(500, 0, 500);
 				camera.up = new THREE.Vector3(0,0,1);
-				camera.lookAt( new THREE.Vector3(0, 0, 0) );
+				camera.lookAt( new THREE.Vector3(-500, 0, 500) );
 							
                 // Will be pushed to create mountains
                 // PlaneGeometry
                 //	width height widthSegments heightSegmetns
-				var plane = new THREE.PlaneGeometry( 1000, 1000, 100, 100 );
+				//var plane = new THREE.PlaneGeometry( 1000, 1000, 512, 512 );
 				
 				// loop through all verts and offset them
 				//noisemaker = new SimplexNoise();
@@ -295,8 +428,59 @@
 					fragmentShader: document.getElementById( 'fragmentShader' ).textContent
 				} );
 
-				var terrain = new THREE.Mesh( plane, terrainMaterial );
-				scene.add(terrain);
+				//var terrain = new THREE.Mesh( plane, terrainMaterial );
+				//scene.add(terrain);
+
+				/**************************
+					RTT Atmospheric setup
+				**************************/
+				rtt_camera = new THREE.OrthographicCamera( -windowHalfX, windowHalfX, windowHalfY, -windowHalfY, -1, 1 );
+				rtt_texture = new THREE.WebGLRenderTarget( wWidth, wHeight, { 
+					minFilter: THREE.LinearMipMapLinearFilter, 
+					magFilter: THREE.LinearFilter, 
+					format: THREE.RGBAFormat,
+					type: THREE.FloatType,
+					depthBuffer: false,
+					stencilBuffer: false,
+				} );
+
+
+				rtt_uniforms = {
+					resolution:     { type: "v2", value: new THREE.Vector2(wWidth, wHeight) },
+					invrs_cam:      { type: "m4", value: camera.projectionMatrixInverse },
+					invrs_proj:     { type: "m4", value: camera.matrixWorldInverse },
+					light_dir: 		{ type: "v3", value: new THREE.Vector3(0,0,1) },
+					eye_height: 	{ type: "f", value: 0.99 },
+					brightness_scales: 			{ type: "v3", value: new THREE.Vector3(rayleighScale, mieScale, sunScale)},
+					rayleigh_collecting_power: 	{ type: "f", value: 0.81},
+					mie_collecting_power: 		{ type: "f", value: 0.39},
+					mie_distro: 				{ type: "f", value: 0.63},
+				};
+				rtt_material = new THREE.ShaderMaterial( {
+					uniforms: rtt_uniforms,
+					vertexShader: document.getElementById( 'atmos_vert' ).textContent,
+					fragmentShader: document.getElementById( 'atmos_frag' ).textContent,
+					depthWrite: false,
+					depthTest: false,
+				} );
+                // order of faces: 0,2,3,1
+				var plane = new THREE.PlaneGeometry( wWidth, wHeight );
+                plane.vertices[0].x = -1;
+                plane.vertices[0].y =  1;
+
+                plane.vertices[1].x =  1;
+                plane.vertices[1].y =  1;
+
+                plane.vertices[2].x = -1;
+                plane.vertices[2].y = -1;
+
+                plane.vertices[3].x =  1;
+                plane.vertices[3].y = -1;
+				
+				var quad = new THREE.Mesh( plane, rtt_material );
+				rtt_scene = new THREE.Scene();
+				rtt_scene.add( rtt_camera );
+				rtt_scene.add( quad );
 
 				// RENDERER
 				/**
@@ -318,22 +502,30 @@
 			}
 
 			function update() {
-				var worldCenter = new THREE.Vector3(-500,-500,-500);
+				var worldCenter = new THREE.Vector3(0,0,-500);
 				var diff = new THREE.Vector3().sub(sunPosition, worldCenter);
-				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), Math.sin(clock.getElapsedTime()*0.1)*1.3 );
+				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), Math.sin(clock.getElapsedTime())*1.3 );
 				mat.multiplyVector3(diff);
 				var newPos = new THREE.Vector3().add(worldCenter, diff);
 
-				terrainMaterial["uniforms"]["LightPos"]["value"] = newPos;
+				terrainMaterial["uniforms"]["LightPos"]["value"] = newPos;				
 
 				{
-					var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,0,1), Math.sin(clock.getElapsedTime()*0.5)*0.5 );
-					var lookatpt = new THREE.Vector3(0,-200,0);
+					var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,0,1), Math.sin(clock.getElapsedTime()*0.5) );
+					var lookatpt = new THREE.Vector3(0,-500,0);
 					var lookatvec = new THREE.Vector3().sub(lookatpt, camera.position);
 					mat.multiplyVector3(lookatvec);
 					lookatpt = new THREE.Vector3().add(lookatvec, camera.position);
-					camera.lookAt( lookatpt );
+					//camera.lookAt( lookatpt );
+
+					mat = camera.matrix;
+					//rtt_material["uniforms"]["invrs_cam"]["value"] = new THREE.Matrix4().getInverse(mat);
+					rtt_material["uniforms"]["light_dir"]["value"] = diff.normalize();
 				}
+
+				var percent = Math.abs( Math.sin(clock.getElapsedTime()) );
+				var min = 0.25, max = 0.5;
+				//rtt_material["uniforms"]["eye_height"]["value"] = (max - min) * percent;
 			}
 
 			function render() {
@@ -341,7 +533,8 @@
 				//movement = moveDir.multiplyScalar( Math.sin(clock.getDelta()) );
 				movement = moveDir.multiplyScalar( Math.sin(clock.getElapsedTime()) * 0.91 );
 				//camera.position.addSelf( movement );
-				renderer.render( scene, camera );
+				//renderer.render( scene, camera );
+				renderer.render( rtt_scene, rtt_camera );
 			}
 		</script>
 
