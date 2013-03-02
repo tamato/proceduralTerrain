@@ -444,12 +444,13 @@
 					stencilBuffer: false,
 				} );
 
-
+				camera.projectionMatrixInverse.getInverse( camera.projectionMatrix );
+				camera.matrixWorldInverse.getInverse( camera.matrixWorld );
 				rtt_uniforms = {
 					resolution:     { type: "v2", value: new THREE.Vector2(wWidth, wHeight) },
 					invrs_cam:      { type: "m4", value: camera.projectionMatrixInverse },
 					invrs_proj:     { type: "m4", value: camera.matrixWorldInverse },
-					light_dir: 		{ type: "v3", value: new THREE.Vector3(0,0,1) },
+					light_dir: 		{ type: "v3", value: new THREE.Vector3(0,1,0) },
 					eye_height: 	{ type: "f", value: 0.99 },
 					brightness_scales: 			{ type: "v3", value: new THREE.Vector3(rayleighScale, mieScale, sunScale)},
 					rayleigh_collecting_power: 	{ type: "f", value: 0.81},
@@ -504,11 +505,12 @@
 			function update() {
 				var worldCenter = new THREE.Vector3(0,0,-500);
 				var diff = new THREE.Vector3().sub(sunPosition, worldCenter);
-				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), Math.sin(clock.getElapsedTime())*1.3 );
+				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0), Math.sin(clock.getElapsedTime())*1.3 );
 				mat.multiplyVector3(diff);
 				var newPos = new THREE.Vector3().add(worldCenter, diff);
 
 				terrainMaterial["uniforms"]["LightPos"]["value"] = newPos;				
+				rtt_material["uniforms"]["light_dir"]["value"] = diff.normalize();
 
 				{
 					var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,0,1), Math.sin(clock.getElapsedTime()*0.5) );
@@ -518,14 +520,9 @@
 					lookatpt = new THREE.Vector3().add(lookatvec, camera.position);
 					//camera.lookAt( lookatpt );
 
-					mat = camera.matrix;
-					//rtt_material["uniforms"]["invrs_cam"]["value"] = new THREE.Matrix4().getInverse(mat);
-					rtt_material["uniforms"]["light_dir"]["value"] = diff.normalize();
+					//camera.matrixWorldInverse.getInverse( camera.matrixWorld );
+					//rtt_material["uniforms"]["invrs_cam"]["value"] = camera.matrixWorldInverse;
 				}
-
-				var percent = Math.abs( Math.sin(clock.getElapsedTime()) );
-				var min = 0.25, max = 0.5;
-				//rtt_material["uniforms"]["eye_height"]["value"] = (max - min) * percent;
 			}
 
 			function render() {
@@ -535,8 +532,34 @@
 				//camera.position.addSelf( movement );
 				//renderer.render( scene, camera );
 				renderer.render( rtt_scene, rtt_camera );
+
+				//camera.matrixWorldInverse.getInverse( camera.matrix );
+				//camera.projectionMatrixInverse.getInverse( camera.projectionMatrix );
 			}
 		</script>
 
 	</body>
 </html>
+
+
+<!--
+projection{
+	2.4142136573791504  0 					0 					0
+	0 					2.4142136573791504 	0 					0
+	0 					0 					-1.0002000331878662 -0.20002000033855438
+	0 					0 					-1 					0
+}
+projection_inv{
+	0.41421353816986084  0 					0 					0
+	0 					0.41421353816986084	0 					0
+	0 					0 					-4.999500274658203  -1.
+	0 					0 					0 					5.000500202178955
+}
+
+camear_inv{
+	-0.27199050784111023 	0.9622998833656311 	3.5495035799470998e-9 	0
+	-0.5555841326713562 	-0.157033771276474 	0.8164966106414795 		0
+	0.7857146263122559 		0.2220792919397354 	0.5773502588272095 		0
+	0 						0 					0 						1
+}
+	-->
