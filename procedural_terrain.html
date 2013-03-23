@@ -44,13 +44,7 @@
 		<script src="three.js/build/three.js"></script>
 		<script src="js/Detector.js"></script>
 		<script src="js/Stats.js"></script>
-		<!-- create a reference to simplex noise that anyone can load -->
-		
-		<!--
-		<script src="https://gist.github.com/banksean/304522/raw/2e0b128e25655ef088c9d1f9767ae17f732c15f1/perlin-noise-simplex.js"></script>
-		<script src="https://gist.github.com/banksean/304522/raw/f306edfdab80d72795565a5fcdeb4eb86368fee0/perlin-noise-classical.js"></script>
-		-->
-
+	
 		<script id="vertexShader" type="x-shader/x-vertex">
 			// renders/WebGLShaders is what has many basic shaders set up and sort of shows how they get "made"
 			// all of the values that get prefixed to a shader (like precision highp, or uniform mat4 projectionMatrix) is done in renders/WebGLRenderer, in buildProgram()
@@ -220,6 +214,11 @@
 				return c/q;
 			}
 
+			float sdSphere( vec3 ro, vec3 rd )
+			{
+				return 1.0;
+			}
+
 			// the color of magic, err I mean air
 			// values from codeflow.org
 			const vec3 Kr = vec3(0.18867780436772762, 0.4978442963618773, 0.6616065586417131);
@@ -235,37 +234,33 @@
                 vec4 point = texture2D(TerrainBuffer, uv);
                 vec3 normal = vec3(0.);
 
-                if (true){
-                	float z = point.z * 1000.0;	// move z back into the normal range
-	                float dx = dFdx(z);
-	                float dy = dFdy(z);
-	                normal = vec3(dx, -dy, 1.);
-            	}
-
-	            if (false){
-	                vec3 offsets = vec3(-1.,0.,1.) / 512.;
-	                vec2 size = vec2(1., 0.);
-	                float point0 = texture2D(TerrainBuffer, uv + offsets.zy).z;
-	                float point1 = texture2D(TerrainBuffer, uv + offsets.yz).z;
-	                
-	                float z = point.z;
-	                vec3 v0 = normalize(vec3(size.xy, point0-z));
-	                vec3 v1 = normalize(vec3(size.yx, point1-z));
-	                normal = cross(v0,v1);
-	            }
-
+            	float z = point.z * 1000.0;	// move z back into the normal range
+                float dx = dFdx(z);
+                float dy = dFdy(z);
+                normal = vec3(dx, -dy, 1.);
                 normal = normalize(normal);
 
-                vec3 up = vec3(0.,0.,1.);
-                float hor = max(dot(up, light_dir), 0.);
+                // Diffuse color of the terrain
 				float theta = dot(normal, light_dir);
-				vec3 color = Diffuse * max(theta, 0.) * hor;
+				vec3 color = Diffuse * max(theta, 0.);
 
+				// color of fog
 				float fog = point.z * FogDensity;
 				vec3 fog_color = vec3(0.8,0.9,1.);
 				color = mix(color, fog_color, 1.0-(fog));
+
+				// add in the sun
+                vec3 eye_vec = vec3(-1. + 2. * uv.xy, -1.);
+                eye_vec = normalize(eye_vec);
+                vec3 sun_vec = normalize(light_dir);
+                theta = dot(eye_vec, sun_vec);
+                float sun_radius = .1;
+                vec3 sun_color = vec3(1., 1., 1.);                
+                if (point.z < 0.01)
+	                color += sun_color * vec3(smoothstep(1.-sun_radius, 1., theta));
+
 				gl_FragColor = vec4( color, 1.0);
-				//gl_FragColor = vec4( normal, 1.0);
+				//gl_FragColor = vec4( normal, 1.0 );
 			}
 		</script>
 
@@ -312,16 +307,16 @@
 				clock = new THREE.Clock();
 				scene = new THREE.Scene();
 				camera = new THREE.PerspectiveCamera( 45, wWidth / wHeight, 0.1, 1000 );
-				camera.position = new THREE.Vector3(500, 0, 150);
+				camera.position = new THREE.Vector3(512, 512, 150);
 				camera.up = new THREE.Vector3(0,0,1);
 				camera.lookAt( new THREE.Vector3(0, 0, 10) );
 							
                 // Will be pushed to create mountains
                 // PlaneGeometry
                 //	width height widthSegments heightSegmetns
-				var plane = new THREE.PlaneGeometry( 1024, 1024, 1024, 1024 );
+				var plane = new THREE.PlaneGeometry( 1024, 1024, 256, 256 );
 
-				sunPosition = new THREE.Vector3(0,0,1000);
+				sunPosition = new THREE.Vector3(0,1000,0);
 				var uniforms = {
 					Displacement: { type: "v3", value: new THREE.Vector3(-1,0,0) },
 					Time: 		 { type: "f", value: 1.0 },
@@ -420,17 +415,18 @@
 			}
 
 			function update() {
-				var worldCenter = new THREE.Vector3(0,0,-500);
+				var worldCenter = new THREE.Vector3(0,0,0);
 				var diff = new THREE.Vector3().sub(sunPosition, worldCenter);
-				//var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), clock.getElapsedTime() );
-				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0,1,0), 0.0 );
+				var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0), clock.getElapsedTime()*0.5 );
+				//var mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1,0,0), 0.0 );
 				mat.multiplyVector3(diff);
 				var newPos = new THREE.Vector3().add(worldCenter, diff);
 
 				as_material["uniforms"]["light_dir"]["value"] = diff.normalize();
 
-				var moveDir = new THREE.Vector3(-100,0,0);
-				var movement = moveDir.multiplyScalar( clock.getElapsedTime() );
+				var speed = -50.0;
+				var moveDir = new THREE.Vector3(1,1,0);
+				var movement = moveDir.multiplyScalar( clock.getElapsedTime() * speed );
 				terrainMaterial["uniforms"]["Displacement"]["value"] = movement;
 				terrainMaterial["uniforms"]["Time"]["value"] = clock.getElapsedTime();
 			}
