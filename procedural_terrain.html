@@ -250,17 +250,22 @@
 				color = mix(color, fog_color, 1.0-(fog));
 
 				// add in the sun
-                vec3 eye_vec = vec3(-1. + 2. * uv.xy, -1.);
+                vec3 eye_vec = vec3(-1.+2.*uv.xy, -1.);
                 eye_vec = normalize(eye_vec);
                 vec3 sun_vec = normalize(light_dir);
                 theta = dot(eye_vec, sun_vec);
-                float sun_radius = .1;
-                vec3 sun_color = vec3(1., 1., 1.);                
+                float ac = acos(theta * -1.);
+                float sun_radius = 1.;
+                vec3 sun_color = vec3(1., 1., 1.);
+                const float PI = 3.141592525;
+                const float H_PI = PI * .5;
                 if (point.z < 0.01)
-	                color += sun_color * vec3(smoothstep(1.-sun_radius, 1., theta));
+	                color += sun_color * vec3(smoothstep(.9, 1., theta));
+	            	//color += sun_color * vec3(smoothstep( H_PI + 1., PI, ac)*1.0);
 
 				gl_FragColor = vec4( color, 1.0);
-				//gl_FragColor = vec4( normal, 1.0 );
+				//gl_FragColor = vec4(smoothstep(0., 3., ac) * 2.);
+				//gl_FragColor = vec4((theta));
 			}
 		</script>
 
